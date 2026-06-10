@@ -21,3 +21,6 @@ yarn.lock
 
 # OS
 .DS_Store
+
+# Internal planning notes (local-only by owner policy)
+.planning/
