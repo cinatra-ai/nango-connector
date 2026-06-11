@@ -17,18 +17,23 @@ const { store, writes, deletes } = vi.hoisted(() => ({
   deletes: [] as string[],
 }));
 
-vi.mock("@/lib/database", () => ({
-  readConnectorConfigFromDatabase: (id: string, fallback: unknown) =>
-    store.has(id) ? store.get(id) : fallback,
-  writeConnectorConfigToDatabase: (id: string, value: unknown) => {
-    store.set(id, value);
-    writes.push({ id, value });
-  },
-  deleteConnectorConfig: (id: string) => {
-    store.delete(id);
-    deletes.push(id);
-  },
-}));
+// Post-cutover sweep: persistence is the INJECTED config store (bound by
+// register(ctx) in production; bound to a fixture here — the legacy
+// @/lib/database fallback is gone).
+async function bindFixtureStore() {
+  const { setNangoConfigStore } = await import("../config-store");
+  setNangoConfigStore({
+    read: (id, fallback) => (store.has(id) ? (store.get(id) as never) : (fallback as never)),
+    write: (id, value) => {
+      store.set(id, value);
+      writes.push({ id, value });
+    },
+    delete: (id) => {
+      store.delete(id);
+      deletes.push(id);
+    },
+  });
+}
 
 beforeEach(() => {
   store.clear();
@@ -44,6 +49,7 @@ describe("purgeLegacyNangoConnectionConfig — DELETE-only sanitization of the d
   it("deletes the dead legacy key and leaves live `nango` UNCHANGED", async () => {
     store.set("nango", { secretKey: "real-secret", serverUrl: "https://real.example" });
     store.set("nango_connection", { secretKey: "legacy", serverUrl: "https://legacy.example" });
+    await bindFixtureStore();
     const { getNangoSettings } = await import("../nango");
 
     const settings = getNangoSettings();
@@ -62,6 +68,7 @@ describe("purgeLegacyNangoConnectionConfig — DELETE-only sanitization of the d
     // bearer secret would be sent to the attacker host on the next Nango call.
     store.set("nango", { secretKey: "real-secret" }); // live secret, no serverUrl
     store.set("nango_connection", { serverUrl: "https://attacker.example" });
+    await bindFixtureStore();
     const { getNangoSettings } = await import("../nango");
 
     const settings = getNangoSettings();
@@ -74,6 +81,7 @@ describe("purgeLegacyNangoConnectionConfig — DELETE-only sanitization of the d
 
   it("SECURITY: never promotes a legacy secretKey into an unconfigured live (MITM guard)", async () => {
     store.set("nango_connection", { secretKey: "attacker-secret", serverUrl: "https://attacker.example" });
+    await bindFixtureStore();
     const { getNangoSettings } = await import("../nango");
 
     const settings = getNangoSettings();
@@ -86,6 +94,7 @@ describe("purgeLegacyNangoConnectionConfig — DELETE-only sanitization of the d
 
   it("deletes a blank legacy row too (no stale key left behind)", async () => {
     store.set("nango_connection", {});
+    await bindFixtureStore();
     const { getNangoSettings } = await import("../nango");
 
     getNangoSettings();
@@ -96,6 +105,7 @@ describe("purgeLegacyNangoConnectionConfig — DELETE-only sanitization of the d
 
   it("no-op when no legacy key exists (no delete)", async () => {
     store.set("nango", { secretKey: "real-secret" });
+    await bindFixtureStore();
     const { getNangoSettings } = await import("../nango");
 
     getNangoSettings();
@@ -105,6 +115,7 @@ describe("purgeLegacyNangoConnectionConfig — DELETE-only sanitization of the d
 
   it("latches after the first read so it never re-probes the legacy key", async () => {
     store.set("nango_connection", { secretKey: "x" });
+    await bindFixtureStore();
     const { getNangoSettings } = await import("../nango");
 
     getNangoSettings();

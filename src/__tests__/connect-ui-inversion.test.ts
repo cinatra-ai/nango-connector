@@ -10,31 +10,11 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { legacyMaterializers, configRows } = vi.hoisted(() => ({
-  legacyMaterializers: {
-    linkedin: vi.fn(async () => undefined),
-    wordpress: vi.fn(async () => undefined),
-  },
+const { configRows } = vi.hoisted(() => ({
   configRows: new Map<string, unknown>(),
 }));
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/database", () => ({
-  readConnectorConfigFromDatabase: (id: string, fallback: unknown) =>
-    configRows.has(id) ? configRows.get(id) : fallback,
-  writeConnectorConfigToDatabase: (id: string, value: unknown) => {
-    configRows.set(id, value);
-  },
-  deleteConnectorConfig: (id: string) => {
-    configRows.delete(id);
-  },
-}));
-vi.mock("@/lib/linkedin-api", () => ({
-  saveLinkedInAccountFromNangoConnection: legacyMaterializers.linkedin,
-}));
-vi.mock("@/lib/wordpress-api", () => ({
-  saveWordPressInstanceFromNangoConnection: legacyMaterializers.wordpress,
-}));
 
 // The integration-credential reader + connection readback + record store are
 // nango-internal; mock them at the module boundary so the chains under test
@@ -65,7 +45,7 @@ import {
   getNangoOAuth2IntegrationCredentials,
   saveNangoConnectionRecord,
 } from "../nango";
-import { _resetNangoConfigStoreForTests } from "../config-store";
+import { _resetNangoConfigStoreForTests, setNangoConfigStore } from "../config-store";
 import {
   _resetNangoConnectionMaterializerForTests,
   setNangoConnectionMaterializerDispatch,
@@ -76,6 +56,17 @@ beforeEach(() => {
   configRows.clear();
   _resetNangoConfigStoreForTests();
   _resetNangoConnectionMaterializerForTests();
+  // Post-cutover sweep: the injected store is the ONLY persistence path —
+  // bind a fixture (register(ctx) binds the host service in production).
+  setNangoConfigStore({
+    read: (id, fallback) => (configRows.has(id) ? (configRows.get(id) as never) : (fallback as never)),
+    write: (id, value) => {
+      configRows.set(id, value);
+    },
+    delete: (id) => {
+      configRows.delete(id);
+    },
+  });
   vi.mocked(getNangoOAuth2IntegrationCredentials).mockResolvedValue(null);
 });
 
@@ -149,6 +140,10 @@ describe("linkedin client credentials (host getLinkedInAPISettings parity)", () 
 
 describe("save-path materialization (inline fail-blocking parity)", () => {
   it("wordpress: refuses a save without a site URL BEFORE materializing", async () => {
+    const dispatched: unknown[] = [];
+    setNangoConnectionMaterializerDispatch(async (input) => {
+      dispatched.push(input);
+    });
     await expect(
       saveNangoConnectorConnection({
         connectorKey: "wordpress",
@@ -156,22 +151,21 @@ describe("save-path materialization (inline fail-blocking parity)", () => {
         connectionId: "c-1",
       }),
     ).rejects.toThrow("Enter the WordPress site domain before connecting with Nango.");
-    expect(legacyMaterializers.wordpress).not.toHaveBeenCalled();
+    expect(dispatched).toEqual([]);
   });
 
-  it("wordpress: unbound dispatch falls back to the legacy host materializer (skew window)", async () => {
-    await saveNangoConnectorConnection({
-      connectorKey: "wordpress",
-      providerConfigKey: "cinatra-wordpress",
-      connectionId: "c-2",
-      siteUrl: " https://example.com ",
-    });
+  it("wordpress: an UNBOUND dispatch fails the save LOUD (the sweep removed the legacy fallback)", async () => {
+    await expect(
+      saveNangoConnectorConnection({
+        connectorKey: "wordpress",
+        providerConfigKey: "cinatra-wordpress",
+        connectionId: "c-2",
+        siteUrl: " https://example.com ",
+      }),
+    ).rejects.toThrow(/connection-materializer dispatch is not bound/);
+    // Parity note: the record save still precedes materialization (today's
+    // ordering), so the record write happened before the loud failure.
     expect(vi.mocked(saveNangoConnectionRecord)).toHaveBeenCalled();
-    expect(legacyMaterializers.wordpress).toHaveBeenCalledWith({
-      siteUrl: "https://example.com",
-      providerConfigKey: "cinatra-wordpress",
-      connectionId: "c-2",
-    });
   });
 
   it("a bound materializer failure FAILS the save (blocking semantics)", async () => {
@@ -185,7 +179,6 @@ describe("save-path materialization (inline fail-blocking parity)", () => {
         connectionId: "c-3",
       }),
     ).rejects.toThrow("materializer down");
-    expect(legacyMaterializers.linkedin).not.toHaveBeenCalled();
   });
 
   it("linkedin: app-scope saves materialize, user-scope saves do NOT (parity)", async () => {

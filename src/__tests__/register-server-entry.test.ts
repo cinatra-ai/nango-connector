@@ -7,10 +7,6 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { legacyDb } = vi.hoisted(() => ({
-  legacyDb: { read: vi.fn((_id: string, fallback: unknown) => fallback), write: vi.fn(), delete: vi.fn() },
-}));
-
 vi.mock("server-only", () => ({}));
 // Hermetic Nango SDK client: saveNangoSettings constructs a client for the
 // best-effort watermark call (fire-and-forget, .catch-swallowed) — keep it
@@ -22,17 +18,6 @@ vi.mock("@nangohq/node", () => ({
     secretKey = "sk-test";
     constructor(_input: unknown) {}
   },
-}));
-vi.mock("@/lib/database", () => ({
-  readConnectorConfigFromDatabase: (id: string, fallback: unknown) => legacyDb.read(id, fallback),
-  writeConnectorConfigToDatabase: (id: string, value: unknown) => legacyDb.write(id, value),
-  deleteConnectorConfig: (id: string) => legacyDb.delete(id),
-}));
-vi.mock("@/lib/linkedin-api", () => ({
-  saveLinkedInAccountFromNangoConnection: vi.fn(async () => undefined),
-}));
-vi.mock("@/lib/wordpress-api", () => ({
-  saveWordPressInstanceFromNangoConnection: vi.fn(async () => undefined),
 }));
 // next/navigation redirect — the action core calls it after a successful save.
 const { redirectCalls } = vi.hoisted(() => ({ redirectCalls: [] as string[] }));
@@ -96,9 +81,6 @@ function publishHostServices(registry: Map<string, Provider[]>) {
 beforeEach(() => {
   _resetNangoConfigStoreForTests();
   _resetNangoConnectionMaterializerForTests();
-  legacyDb.read.mockClear();
-  legacyDb.write.mockClear();
-  legacyDb.delete.mockClear();
   redirectCalls.length = 0;
   delete process.env.NANGO_SECRET_KEY;
   delete process.env.NANGO_SERVER_URL;
@@ -111,10 +93,6 @@ describe("register(ctx) — probe safety + surface registration", () => {
     const surface = registered.find((r) => r.capability === "nango-system");
     expect(surface).toBeDefined();
     expect(surface?.provider.packageName).toBe("@cinatra-ai/nango-connector");
-    // Probe safety: activation itself touched neither the legacy DB fallback
-    // nor any host service (none exist in this registry).
-    expect(legacyDb.read).not.toHaveBeenCalled();
-    expect(legacyDb.write).not.toHaveBeenCalled();
   });
 
   it("publishes the full surface member set (exact import-era names)", () => {
@@ -171,7 +149,6 @@ describe("config-store binding", () => {
     expect(settings.secretKey).toBe("live");
     expect(host.calls.delete).toContain("nango_connection");
     expect(host.store.has("nango_connection")).toBe(false);
-    expect(legacyDb.delete).not.toHaveBeenCalled();
   });
 
   // NOTE: runs AFTER the purge test — the one-shot purge latch in ./nango
@@ -185,11 +162,9 @@ describe("config-store binding", () => {
     const settings = getNangoSettings();
     expect(settings.secretKey).toBe("from-host-store");
     expect(host.calls.read).toBeGreaterThan(0);
-    expect(legacyDb.read).not.toHaveBeenCalled();
   });
-  it("falls back to the legacy @/lib/database store when register(ctx) never ran (skew window)", () => {
-    expect(getNangoConfigStore().read("nango", { fallbackHit: true })).toEqual({ fallbackHit: true });
-    expect(legacyDb.read).toHaveBeenCalledWith("nango", { fallbackHit: true });
+  it("FAILS LOUD when register(ctx) never ran (the sweep removed the skew fallback)", () => {
+    expect(() => getNangoConfigStore().read("nango", {})).toThrow(/config store is not bound/);
   });
 });
 
