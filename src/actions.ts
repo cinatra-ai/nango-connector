@@ -18,34 +18,21 @@
 // invalidation stays host-side in the `src/app/campaigns/actions.ts` forwarder
 // (the host onboarding surface that consumes it), keeping this action IoC-clean.
 
-import { redirect } from "next/navigation";
-import { z } from "zod";
 import { requireExtensionAction } from "@cinatra-ai/sdk-extensions";
-import { saveNangoSettings } from "./nango";
+import { makeSaveNangoConnectionAction } from "./actions-core";
 
-const nangoConnectorSchema = z.object({
-  secretKey: z.string().optional(),
-  serverUrl: z.string().optional(),
-  redirectTo: z.string().optional(),
-});
+const NANGO_PACKAGE_ID = "@cinatra-ai/nango-connector";
+
+// The action BODY lives in ./actions-core.ts (a factory parameterized by the
+// manage-permission guard) — shared with the serverEntry capability path,
+// which injects the host's `@cinatra-ai/host:extension-action-guard` service
+// instead of the SDK slot used here (host-peer-value-import ban: the
+// serverEntry graph keeps the SDK type-only). Public signature and behavior
+// are unchanged.
+const action = makeSaveNangoConnectionAction(() =>
+  requireExtensionAction(NANGO_PACKAGE_ID, "manage"),
+);
 
 export async function saveNangoConnectionAction(formData: FormData) {
-  await requireExtensionAction("@cinatra-ai/nango-connector", "manage");
-  const parsed = nangoConnectorSchema.parse({
-    secretKey: formData.get("secretKey") ?? undefined,
-    serverUrl: formData.get("serverUrl") ?? undefined,
-    redirectTo: formData.get("redirectTo") ?? undefined,
-  });
-  const redirectTo = parsed.redirectTo?.trim() || "/configuration/environment?tab=connections";
-
-  try {
-    await saveNangoSettings({
-      secretKey: parsed.secretKey?.trim() || undefined,
-      serverUrl: parsed.serverUrl?.trim() || undefined,
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to save Nango settings.";
-    throw new Error(message);
-  }
-  redirect(redirectTo);
+  return action(formData);
 }

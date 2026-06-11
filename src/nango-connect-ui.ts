@@ -1,17 +1,18 @@
-import { getGitHubOAuthSettings } from "@/lib/github-api";
-import { getLinkedInAPISettings, saveLinkedInAccountFromNangoConnection } from "@/lib/linkedin-api";
-import { saveWordPressInstanceFromNangoConnection } from "@/lib/wordpress-api";
 import { NANGO_CONNECTOR_DEFINITIONS } from "./nango-connectors";
 import {
+  CINATRA_NANGO_PROVIDER_CONFIG_KEYS,
   buildNangoUserEndUserId,
   ensureNangoIntegration,
   getNangoClient,
   getNangoConnection,
   getNangoGoogleOAuthClientCredentials,
+  getNangoOAuth2IntegrationCredentials,
   isNangoConfigured,
   saveNangoConnectionRecord,
   type NangoConnectorKey,
 } from "./nango";
+import { getNangoConfigStore } from "./config-store";
+import { materializeNangoConnection } from "./connection-materializer";
 
 const GOOGLE_NANGO_SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
@@ -35,8 +36,42 @@ const GOOGLE_CALENDAR_NANGO_SCOPES = [
 ].join(",");
 
 const LINKEDIN_NANGO_SCOPES = ["openid", "profile", "email", "w_member_social"].join(",");
+// Parity with the host github surface's OAuth scope set (the integration
+// credentials chain moved connector-side with the serverEntry cutover).
+const GITHUB_NANGO_SCOPES = ["repo", "workflow", "read:user", "user:email"].join(",");
 const GOOGLE_NANGO_DISPLAY_NAME = "Google";
 const YOUTUBE_NANGO_SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"].join(",");
+
+/**
+ * LinkedIn OAuth client credentials, resolved with the SAME precedence as the
+ * host linkedin surface's settings reader: the Nango integration credentials
+ * are the source of truth, with the DB `"linkedin"` connector-config row (via
+ * the injected store) as the resilience fallback. Parity is test-pinned —
+ * keep this chain in sync with the host's `getLinkedInAPISettings`.
+ */
+async function getLinkedInClientCredentials(): Promise<{
+  clientId?: string;
+  clientSecret?: string;
+}> {
+  const nangoCredentials = await getNangoOAuth2IntegrationCredentials(
+    CINATRA_NANGO_PROVIDER_CONFIG_KEYS.linkedin,
+  );
+  const stored = getNangoConfigStore().read<{ clientId?: unknown; clientSecret?: unknown }>(
+    "linkedin",
+    {},
+  );
+  const storedClientId =
+    typeof stored.clientId === "string" && stored.clientId.trim() ? stored.clientId.trim() : undefined;
+  const storedClientSecret =
+    typeof stored.clientSecret === "string" && stored.clientSecret.trim()
+      ? stored.clientSecret.trim()
+      : undefined;
+
+  return {
+    clientId: nangoCredentials?.clientId || storedClientId,
+    clientSecret: nangoCredentials?.clientSecret || storedClientSecret,
+  };
+}
 
 export function getNangoConnectorDefinition(connectorKey: NangoConnectorKey) {
   return NANGO_CONNECTOR_DEFINITIONS[connectorKey];
@@ -112,8 +147,13 @@ export async function ensureNangoConnectorIntegration(connectorKey: NangoConnect
         displayName: connectDisplayName,
       });
     case "github": {
-      const settings = await getGitHubOAuthSettings();
-      if (!settings.clientId || !settings.clientSecret) {
+      // Same chain the host's github surface uses for these credentials: the
+      // Nango integration itself is the source of truth (this package's own
+      // reader) — no host import.
+      const credentials = await getNangoOAuth2IntegrationCredentials(
+        CINATRA_NANGO_PROVIDER_CONFIG_KEYS.github,
+      );
+      if (!credentials?.clientId || !credentials?.clientSecret) {
         throw new Error("Save the GitHub client ID and client secret first.");
       }
 
@@ -123,9 +163,9 @@ export async function ensureNangoConnectorIntegration(connectorKey: NangoConnect
         displayName: connectDisplayName,
         credentials: {
           type: "OAUTH2",
-          client_id: settings.clientId,
-          client_secret: settings.clientSecret,
-          scopes: settings.scopes.join(","),
+          client_id: credentials.clientId,
+          client_secret: credentials.clientSecret,
+          scopes: GITHUB_NANGO_SCOPES,
         },
       });
     }
@@ -148,7 +188,7 @@ export async function ensureNangoConnectorIntegration(connectorKey: NangoConnect
       });
     }
     case "linkedin": {
-      const settings = await getLinkedInAPISettings();
+      const settings = await getLinkedInClientCredentials();
       if (!settings.clientId || !settings.clientSecret) {
         throw new Error("Save the LinkedIn client ID and client secret first.");
       }
@@ -346,23 +386,33 @@ export async function saveNangoConnectorConnection(input: {
     },
   );
 
+  // BLOCKING materialization (wordpress instance row / linkedin account row):
+  // dispatched through the host's `nango-connection-materializer` capability
+  // when `register(ctx)` bound it; a failure FAILS the save (inline semantics
+  // preserved — see ./connection-materializer.ts).
   if (input.connectorKey === "wordpress") {
     const siteUrl = input.siteUrl?.trim();
     if (!siteUrl) {
       throw new Error("Enter the WordPress site domain before connecting with Nango.");
     }
 
-    await saveWordPressInstanceFromNangoConnection({
-      siteUrl,
+    await materializeNangoConnection({
+      connectorKey: "wordpress",
       providerConfigKey: input.providerConfigKey,
       connectionId: input.connectionId,
+      siteUrl,
+      scope: input.scope,
+      userId: input.userId,
     });
   }
 
   if (input.connectorKey === "linkedin" && input.scope !== "user") {
-    await saveLinkedInAccountFromNangoConnection({
+    await materializeNangoConnection({
+      connectorKey: "linkedin",
       providerConfigKey: input.providerConfigKey,
       connectionId: input.connectionId,
+      scope: input.scope,
+      userId: input.userId,
     });
   }
 

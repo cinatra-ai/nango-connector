@@ -1,5 +1,5 @@
 import { Nango, type ApiKeyCredentials, type BasicApiCredentials, type OAuth2Credentials } from "@nangohq/node";
-import { deleteConnectorConfig, readConnectorConfigFromDatabase, writeConnectorConfigToDatabase } from "@/lib/database";
+import { getNangoConfigStore } from "./config-store";
 
 export type NangoSettings = {
   secretKey?: string;
@@ -154,11 +154,11 @@ let legacyNangoKeyPurged = false;
 
 function purgeLegacyNangoConnectionConfig(): void {
   try {
-    const legacy = readConnectorConfigFromDatabase<NangoSettings | null>(LEGACY_NANGO_CONNECTION_KEY, null);
+    const legacy = getNangoConfigStore().read<NangoSettings | null>(LEGACY_NANGO_CONNECTION_KEY, null);
     if (legacy !== null && legacy !== undefined) {
       // Physically remove the dead, untrusted key (any present row, incl. blank).
       // Its values are NEVER read back into live config.
-      deleteConnectorConfig(LEGACY_NANGO_CONNECTION_KEY);
+      getNangoConfigStore().delete(LEGACY_NANGO_CONNECTION_KEY);
     }
     legacyNangoKeyPurged = true;
   } catch {
@@ -182,7 +182,7 @@ function readStoredNangoSettings(): NangoSettings {
   // which is acceptable (Google OAuth is optional; email/password auth still works).
   // The next warm request will succeed once schema init completes.
   try {
-    const stored = readConnectorConfigFromDatabase<NangoSettings>(NANGO_CONNECTOR_ID, {});
+    const stored = getNangoConfigStore().read<NangoSettings>(NANGO_CONNECTOR_ID, {});
     if (!legacyNangoKeyPurged) {
       // Sanitize the dead, untrusted `nango_connection` key once. NEVER alters
       // the live `nango` value returned here.
@@ -201,11 +201,11 @@ function readStoredNangoSettings(): NangoSettings {
 }
 
 function readStoredNangoConnections() {
-  return readConnectorConfigFromDatabase<NangoConnectionStore>(NANGO_CONNECTIONS_CONNECTOR_ID, EMPTY_NANGO_CONNECTION_STORE);
+  return getNangoConfigStore().read<NangoConnectionStore>(NANGO_CONNECTIONS_CONNECTOR_ID, EMPTY_NANGO_CONNECTION_STORE);
 }
 
 function writeStoredNangoConnections(value: NangoConnectionStore) {
-  writeConnectorConfigToDatabase(NANGO_CONNECTIONS_CONNECTOR_ID, value);
+  getNangoConfigStore().write(NANGO_CONNECTIONS_CONNECTOR_ID, value);
 }
 
 export function buildNangoUserEndUserId(userId: string) {
@@ -229,7 +229,7 @@ export function getNangoSettings(): NangoSettings {
 
 export async function saveNangoSettings(input: NangoSettings) {
   const current = readStoredNangoSettings();
-  writeConnectorConfigToDatabase(NANGO_CONNECTOR_ID, {
+  getNangoConfigStore().write(NANGO_CONNECTOR_ID, {
     ...current,
     secretKey: input.secretKey?.trim() || current.secretKey,
     serverUrl: input.serverUrl?.trim() || current.serverUrl,
@@ -594,7 +594,7 @@ export async function getNangoGoogleOAuthClientCredentials(): Promise<{
   const nangoCredentials = await getNangoOAuth2IntegrationCredentials(
     CINATRA_NANGO_PROVIDER_CONFIG_KEYS.googleOAuth,
   );
-  const stored = readConnectorConfigFromDatabase<{ clientId?: string; clientSecret?: string }>(
+  const stored = getNangoConfigStore().read<{ clientId?: string; clientSecret?: string }>(
     "google_oauth",
     {},
   );
