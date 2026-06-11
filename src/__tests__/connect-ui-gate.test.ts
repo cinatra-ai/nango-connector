@@ -13,21 +13,18 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 vi.mock("@/lib/database", () => ({
   readConnectorConfigFromDatabase: vi.fn(<T>(_key: string, fallback: T): T => fallback),
   writeConnectorConfigToDatabase: vi.fn(),
+  deleteConnectorConfig: vi.fn(),
 }));
 
-// nango-connect-ui.ts pulls a chain of @/lib/* modules that ultimately reach
-// @cinatra-ai/mcp-client-registry-connector (unresolvable in this package's
-// vitest sandbox). The connection-flow gate runs synchronously off the connector
-// definition before any of those code paths execute, so stubbing the imports to
-// bare functions is enough: the assertions below never reach them. (The former
-// @cinatra-ai/google-oauth-connection mock was dropped with the SDK-only
-// decouple — Google OAuth client credentials now resolve via nango's own
-// getNangoGoogleOAuthClientCredentials.)
-vi.mock("@/lib/github-api", () => ({
-  getGitHubOAuthSettings: vi.fn(async () => ({})),
-}));
+// The legacy materializer fallbacks (./connection-materializer) still import
+// @/lib/linkedin-api + @/lib/wordpress-api for the cutover skew window. The
+// connection-flow gate runs synchronously off the connector definition before
+// any of those code paths execute, so stubbing the imports to bare functions
+// is enough: the assertions below never reach them. (The former
+// @/lib/github-api mock was dropped with the serverEntry cutover — the GitHub
+// integration credentials now resolve via nango's own
+// getNangoOAuth2IntegrationCredentials.)
 vi.mock("@/lib/linkedin-api", () => ({
-  getLinkedInAPISettings: vi.fn(async () => ({})),
   saveLinkedInAccountFromNangoConnection: vi.fn(async () => undefined),
 }));
 vi.mock("@/lib/wordpress-api", () => ({
