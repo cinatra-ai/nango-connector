@@ -5,13 +5,9 @@
 //     React components belong to the page graph, not activation),
 //   - `./actions.ts` (the "use server" SDK-slot build site — the register
 //     path injects the host action guard instead), or
-//   - any host `@/lib/*` module EXCEPT `@/lib/database` (the one sanctioned
-//     STATIC skew fallback of the injected config store: the sync store reads
-//     force a static binding; removed by the post-cutover companion sweep).
-// The wordpress/linkedin materializer fallbacks must stay DYNAMIC imports —
-// those host modules import the host's `@/lib/nango` facade, which re-exports
-// THIS package's index (a static edge would close that cycle into the
-// activation graph).
+//   - ANY host `@/` module (the post-cutover sweep removed the skew-window
+//     fallbacks; the injected config store + the capability-resolved
+//     materializer dispatch are the ONLY persistence/materialization paths).
 
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -81,9 +77,9 @@ describe("register(ctx) static import graph stays leaf-only", () => {
     expect(banned).toEqual([]);
   });
 
-  it("the ONLY static host @/ edge is the config-store's @/lib/database skew fallback", () => {
+  it("has ZERO static host @/ edges (the sweep removed the skew fallbacks)", () => {
     const hostEdges = allSpecifiers.filter(({ spec }) => spec.startsWith("@/"));
-    expect(hostEdges).toEqual([{ mod: "./config-store", spec: "@/lib/database" }]);
+    expect(hostEdges).toEqual([]);
   });
 
   it("sanity: the graph actually contains the expected leaf modules", () => {
