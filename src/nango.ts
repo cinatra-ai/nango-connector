@@ -825,3 +825,44 @@ export async function deleteNangoConnection(providerConfigKey: string, connectio
     // Ignore missing connections so local clears still work.
   }
 }
+
+/**
+ * AUTHORITATIVE connection delete (cinatra-ai/tailscale-connector#23, Design C).
+ *
+ * Unlike `deleteNangoConnection` (best-effort — swallows ALL errors so local
+ * "clear" still works), this PROPAGATES a real failure. A `404` / already-gone
+ * connection is the desired end state and resolves successfully (idempotent);
+ * any other failure (5xx, network, 401/403) throws a SANITISED error so the
+ * caller can retain its local pointer and report a failed disconnect rather than
+ * falsely claim the stored credential was scrubbed while it lingers in Nango.
+ *
+ * Used by the Tailscale OAuth (TWO_STEP) disconnect, where the connection holds
+ * the OAuth client secret. The error message never includes a secret or the raw
+ * response body.
+ */
+export async function deleteNangoConnectionStrict(
+  providerConfigKey: string,
+  connectionId: string,
+): Promise<void> {
+  if (!isNangoConfigured()) {
+    // No Nango configured ⇒ nothing is stored ⇒ idempotently "deleted".
+    return;
+  }
+
+  const nango = getNangoClient();
+
+  try {
+    await nango.deleteConnection(providerConfigKey, connectionId);
+  } catch (error) {
+    const status =
+      error && typeof error === "object"
+        ? ((error as { response?: { status?: number } }).response?.status ??
+          (error as { status?: number }).status)
+        : undefined;
+    // 404 / already-gone is success (idempotent).
+    if (status === 404) {
+      return;
+    }
+    throw new Error(getNangoErrorMessage(error, "Nango connection delete failed."));
+  }
+}
