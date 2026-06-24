@@ -32,6 +32,9 @@ const EXPECTED_MULTIPLE: Record<NangoConnectorKey, boolean> = {
   // Single app-level OAuth client. Per-clone auth keys are minted directly
   // via the Tailscale API, not stored per-instance in Nango.
   tailscale: false,
+  // Single app-level OAuth-client connection (Connect UI / TWO_STEP); per-clone
+  // auth keys are minted via the Nango proxy, not stored per-instance.
+  tailscaleOauth: false,
   youtube: false,
 };
 
