@@ -845,8 +845,12 @@ export async function deleteNangoConnectionStrict(
   connectionId: string,
 ): Promise<void> {
   if (!isNangoConfigured()) {
-    // No Nango configured ⇒ nothing is stored ⇒ idempotently "deleted".
-    return;
+    // Authoritative semantics: we CANNOT confirm the remote credential was
+    // scrubbed when Nango is unreachable, so we must NOT report success (which
+    // would let the caller falsely clear its pointer). Fail closed. (Contrast
+    // the best-effort `deleteNangoConnection`, which returns here so local
+    // clears still work.)
+    throw new Error("The connection service (Nango) is not configured; cannot confirm the connection was deleted.");
   }
 
   const nango = getNangoClient();

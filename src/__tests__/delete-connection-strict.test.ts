@@ -55,9 +55,9 @@ describe("deleteNangoConnectionStrict", () => {
     await expect(deleteNangoConnectionStrict("pck", "c1")).rejects.toThrow();
   });
 
-  it("no-ops idempotently when Nango isn't configured — never calls the client", async () => {
+  it("FAILS CLOSED when Nango isn't configured (cannot confirm the scrub) — never calls the client", async () => {
     delete process.env.NANGO_SECRET_KEY;
-    await expect(deleteNangoConnectionStrict("pck", "c1")).resolves.toBeUndefined();
+    await expect(deleteNangoConnectionStrict("pck", "c1")).rejects.toThrow();
     expect(deleteConnectionMock).not.toHaveBeenCalled();
   });
 });
