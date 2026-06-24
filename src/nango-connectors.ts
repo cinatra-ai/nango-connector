@@ -146,6 +146,20 @@ export const NANGO_CONNECTOR_DEFINITIONS: Record<NangoConnectorKey, NangoConnect
     manageHref: "/connectors/tailscale",
     usesConnectUI: false,
   },
+  // Tailscale OAuth-client mode (cinatra-ai/tailscale-connector#23, Design C).
+  // `usesConnectUI: true` so the operator enters the OAuth client_id/secret in
+  // Nango's hosted Connect UI (rendered from the `tailscale` TWO_STEP template's
+  // credential fields) — the secret never transits the Cinatra app. The
+  // connector page at `/connectors/tailscale` drives the connect session.
+  tailscaleOauth: {
+    key: "tailscaleOauth",
+    title: "Tailscale (OAuth client)",
+    connectDisplayName: "Tailscale",
+    description: "OAuth client (recommended) used to mint per-clone Tailscale auth-keys without a 90-day-expiring API token.",
+    providerConfigKey: CINATRA_NANGO_PROVIDER_CONFIG_KEYS.tailscaleOauth,
+    manageHref: "/connectors/tailscale",
+    usesConnectUI: true,
+  },
   wordpress: {
     key: "wordpress",
     title: "WordPress API",

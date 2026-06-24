@@ -229,6 +229,18 @@ export async function ensureNangoConnectorIntegration(connectorKey: NangoConnect
         providerConfigKey: definition.providerConfigKey,
         displayName: connectDisplayName,
       });
+    // Tailscale OAuth-client mode (cinatra-ai/tailscale-connector#23, Design C).
+    // The `tailscale` template is auth_mode TWO_STEP: the OAuth client_id/secret
+    // are CONNECTION-level credentials entered in the Nango Connect UI, so the
+    // integration is created BARE (no integration-level credentials — Nango
+    // rejects OAUTH2-typed creds on a TWO_STEP provider). Nango then mints the
+    // 1h access token itself; the clone worker mints auth-keys via the proxy.
+    case "tailscaleOauth":
+      return ensureNangoIntegration({
+        provider: "tailscale",
+        providerConfigKey: definition.providerConfigKey,
+        displayName: connectDisplayName,
+      });
     // A2A server connector. `private-api-key` lets operators paste
     // a bearer token; the server URL is stored in metadata.baseUrl when the
     // connection is imported. The Connect UI flow is NOT used for a2aServer

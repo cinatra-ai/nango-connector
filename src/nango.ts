@@ -25,6 +25,7 @@ export type NangoConnectorKey =
   | "linkedin"
   | "openai"
   | "tailscale"
+  | "tailscaleOauth"
   | "wordpress"
   | "youtube";
 
@@ -63,6 +64,12 @@ export const CINATRA_NANGO_PROVIDER_CONFIG_KEYS = {
   // Per-clone auth-keys are minted at clone-start time directly via the
   // Tailscale API (not stored in Nango). Single app-level credential.
   tailscale: "cinatra-tailscale",
+  // Tailscale OAuth-client mode (cinatra-ai/tailscale-connector#23, Design C):
+  // a distinct `tailscale` (auth_mode TWO_STEP) integration whose OAuth client
+  // is connected via the Nango Connect UI (the secret is entered in Nango's
+  // hosted UI — it never transits the Cinatra app). Kept separate from the
+  // legacy `cinatra-tailscale` API-key integration so both modes coexist.
+  tailscaleOauth: "cinatra-tailscale-oauth",
   wordpress: "cinatra-wordpress",
   youtube: "cinatra-youtube",
 } as const;
@@ -109,6 +116,7 @@ const EMPTY_NANGO_CONNECTION_STORE: NangoConnectionStore = {
     linkedin: [],
     openai: [],
     tailscale: [],
+    tailscaleOauth: [],
     wordpress: [],
     youtube: [],
   },
