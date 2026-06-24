@@ -120,6 +120,7 @@ describe("register(ctx) — probe safety + surface registration", () => {
       "getNangoConnection",
       "getNangoCredentials",
       "deleteNangoConnection",
+      "deleteNangoConnectionStrict",
       "getNangoOAuth2IntegrationCredentials",
       "createNangoConnectSession",
       "buildBearerAuthHeaderFromNango",
