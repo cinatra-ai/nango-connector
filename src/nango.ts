@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { Nango, type ApiKeyCredentials, type BasicApiCredentials, type OAuth2Credentials } from "@nangohq/node";
 import { getNangoConfigStore } from "./config-store";
 
@@ -233,6 +234,61 @@ export function getNangoSettings(): NangoSettings {
     secretKey: process.env.NANGO_SECRET_KEY?.trim() || stored.secretKey,
     serverUrl: process.env.NANGO_SERVER_URL?.trim() || stored.serverUrl,
   };
+}
+
+/**
+ * Verify an incoming Nango webhook request.
+ *
+ * Self-hosted nango-server (0.70.x line) signs the RAW request body with
+ * HMAC-SHA256 (hex digest) keyed by the environment's API secret key — the
+ * SAME `secretKey` we use for API calls — and sends it in the
+ * `X-Nango-Hmac-Sha256` header. Verified against upstream source:
+ * server `getHmacSignatureHeader(secret, body)` is called with the env API
+ * secret (`DBAPISecret['secret']`), and the SDK's `verifyIncomingWebhookRequest`
+ * HMACs the raw body with `this.secretKey`. Self-hosted Nango has NO separate
+ * webhook signing secret, so we verify with `secretKey` (no NANGO_WEBHOOK_SECRET).
+ *
+ * Fail-closed: returns false when the secret is unconfigured, the header is
+ * missing, the signature is not a 64-char hex digest, or the constant-time
+ * compare fails. Never throws; never short-circuits on length to avoid leaking timing.
+ */
+export function verifyNangoWebhookSignature(
+  rawBody: string,
+  headers: Record<string, unknown>,
+): boolean {
+  const secret = getNangoSettings().secretKey?.trim();
+  if (!secret) {
+    // No API secret key configured → cannot verify → reject every webhook
+    // (intended secure default; the connect/save event flow remains primary).
+    return false;
+  }
+
+  const headerKey = Object.keys(headers).find(
+    (key) => key.toLowerCase() === "x-nango-hmac-sha256",
+  );
+  const provided = headerKey ? headers[headerKey] : undefined;
+  if (typeof provided !== "string") {
+    return false;
+  }
+
+  // Canonicalization guard: a SHA-256 HMAC hex digest is EXACTLY 64 lowercase
+  // hex chars. Reject anything else BEFORE decoding. `Buffer.from(x, "hex")`
+  // silently truncates at the first non-hex char, so without this an attacker
+  // could append junk (e.g. a valid digest + "zz") and still decode to a
+  // matching buffer (length-confusion bypass). Compare hex case-insensitively.
+  if (!/^[0-9a-fA-F]{64}$/.test(provided)) {
+    return false;
+  }
+
+  const expected = createHmac("sha256", secret).update(rawBody).digest("hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  const providedBuf = Buffer.from(provided, "hex");
+  // Both buffers are now guaranteed 32 bytes; timingSafeEqual is constant-time.
+  try {
+    return timingSafeEqual(expectedBuf, providedBuf);
+  } catch {
+    return false;
+  }
 }
 
 export async function saveNangoSettings(input: NangoSettings) {
