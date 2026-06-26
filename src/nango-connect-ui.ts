@@ -8,6 +8,7 @@ import {
   getNangoGoogleOAuthClientCredentials,
   getNangoOAuth2IntegrationCredentials,
   isNangoConfigured,
+  listSavedNangoConnections,
   saveNangoConnectionRecord,
   type NangoConnectorKey,
 } from "./nango";
@@ -300,6 +301,43 @@ export async function createNangoConnectSession(input: {
   const nango = getNangoClient();
 
   if (input.reconnectConnectionId) {
+    // CWE-863: a reconnect token
+    // lets the caller complete OAuth and rebind the named connection. Bind it to
+    // the existing connection's owner BEFORE minting the token — the Cinatra
+    // store is the authorization source (Nango is a consistency check only).
+    const scope = input.scope ?? "app";
+    if (scope === "user") {
+      // User scope requires an authenticated owner and an exact match against
+      // one of the caller's OWN saved connection ids.
+      if (!input.userId) {
+        throw new Error("Sign in again before reconnecting a user connection.");
+      }
+      const owned = listSavedNangoConnections(input.connectorKey, {
+        scope: "user",
+        userId: input.userId,
+      });
+      const ownsConnection = owned.some(
+        (entry) => entry.connectionId === input.reconnectConnectionId,
+      );
+      if (!ownsConnection) {
+        throw new Error("You can only reconnect your own connection.");
+      }
+    } else {
+      // App/unset scope: app connections are not user-owned, so a user filter
+      // cannot authorize them. Require app-scope authority — proven here by an
+      // exact match against an existing app-saved connection id (the caller's
+      // app/admin authority is enforced upstream at the host route, #266). If no
+      // app-saved connection matches, fail closed rather than minting a token
+      // for an arbitrary connection id.
+      const appSaved = listSavedNangoConnections(input.connectorKey, { scope: "app" });
+      const matchesAppConnection = appSaved.some(
+        (entry) => entry.connectionId === input.reconnectConnectionId,
+      );
+      if (!matchesAppConnection) {
+        throw new Error("This connection cannot be reconnected.");
+      }
+    }
+
     const reconnect = await nango.createReconnectSession({
       connection_id: input.reconnectConnectionId,
       integration_id: definition.providerConfigKey,
