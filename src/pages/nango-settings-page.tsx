@@ -8,6 +8,7 @@ import { Input } from "../components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "../components/ui/input-group";
 import { Field, FieldDescription, FieldLabel } from "../components/ui/field";
 import { Label } from "../components/ui/label";
+import { Link } from "../components/ui/link";
 
 type SettingsNangoPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -126,7 +127,7 @@ export async function NangoSettingsSection({ searchParams, redirectTo = "/config
       <Card className="border-line bg-surface backdrop-blur-none rounded-card">
         <CardContent className="p-6">
           <form action={saveNangoConnectionAction} className="grid gap-4">
-            <input type="hidden" name="redirectTo" value={redirectTo} />
+            <Input type="hidden" name="redirectTo" value={redirectTo} />
             <p className="text-sm leading-6 text-muted-foreground">
               Configure the shared connection service Cinatra uses to store and reuse external API credentials and OAuth
               connections.
@@ -163,7 +164,7 @@ export async function NangoSettingsSection({ searchParams, redirectTo = "/config
             <div className="flex flex-wrap gap-3">
               {dashboardUrl ? (
                 <Button asChild variant="outline">
-                  <a href={dashboardUrl} target="_blank" rel="noreferrer">Open dashboard</a>
+                  <Link href={dashboardUrl} target="_blank" rel="noreferrer">Open dashboard</Link>
                 </Button>
               ) : null}
               <Button type="submit">Save credentials</Button>
