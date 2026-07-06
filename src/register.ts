@@ -38,6 +38,7 @@ import {
   getNangoOAuth2IntegrationCredentials,
   getNangoOAuthCallbackUrl,
   getNangoSettings,
+  getNangoSettingsEnvManaged,
   getNangoStatus,
   getPrimarySavedNangoConnection,
   getPrimarySavedNangoConnections,
@@ -60,6 +61,7 @@ import {
 import { buildBearerAuthHeaderFromNango } from "./first-party-mcp";
 import { makeSaveNangoConnectionAction } from "./actions-core";
 import { setNangoConfigStore } from "./config-store";
+import { setNangoRuntime } from "./runtime-store";
 import {
   setNangoConnectionMaterializerDispatch,
   type NangoConnectionMaterializeInput,
@@ -93,14 +95,34 @@ function hostService<T>(ctx: ExtensionHostContext, capability: string): T {
 }
 
 export function register(ctx: ExtensionHostContext): void {
+  // 0. Bind the ambient runtime port so the settings page can read the host's
+  // runtime mode (dev-vs-prod default server URL) WITHOUT touching process.env
+  // (cinatra-ai/cinatra#982). `runtime` is an ambient host port — always present.
+  setNangoRuntime(ctx.runtime);
+
   // 1. Injected persistence: every connector-config read/write/delete in this
   // package now resolves the host's delete-capable config service at call time.
   const config = () =>
-    hostService<HostConnectorConfigService>(ctx, HOST_CONNECTOR_CONFIG_CAPABILITY);
+    hostService<
+      HostConnectorConfigService & {
+        // Additive host member (cinatra-ai/cinatra#982, Option A) — the
+        // frozen SDK `HostConnectorConfigService` contract is unchanged; this
+        // structural extension mirrors the host's own `HostExternalMcpRegistry
+        // SetupSurface` precedent. Optional so an older host build degrades to
+        // DB-only resolution.
+        resolveEnvOverrides?(packageName: string): Record<string, string>;
+      }
+    >(ctx, HOST_CONNECTOR_CONFIG_CAPABILITY);
   setNangoConfigStore({
     read: (connectorId, fallback) => config().read(connectorId, fallback),
     write: (connectorId, value) => config().write(connectorId, value),
     delete: (connectorId) => config().delete(connectorId),
+    // Env-override precedence (cinatra-ai/cinatra#982, Option A): the HOST reads
+    // process.env against THIS package's manifest `cinatra.envOverrides` and
+    // returns the current, trimmed values keyed by settings/secrets KEY. Bound
+    // to our own package name here; the env-var NAMES never appear in this
+    // source. `?? {}` keeps the older-host / unwired path env-override-free.
+    resolveEnvOverrides: () => config().resolveEnvOverrides?.(PACKAGE_NAME) ?? {},
   });
 
   // 2. BLOCKING connection-save materialization (wordpress instance row /
@@ -154,6 +176,11 @@ export function register(ctx: ExtensionHostContext): void {
       getNangoStatus,
       getNangoFrontendConfig,
       getNangoSettings,
+      // Which settings/secrets keys are supplied by an operator env override
+      // (host-resolved from the manifest, cinatra-ai/cinatra#982) — lets a host
+      // settings/setup surface blank the write-only field WITHOUT reading
+      // process.env itself.
+      getNangoSettingsEnvManaged,
       getNangoOAuthCallbackUrl,
       // saved-connection records (sync reads, async writes)
       listSavedNangoConnections,

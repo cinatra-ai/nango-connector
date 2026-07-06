@@ -16,6 +16,25 @@ export type NangoConfigStore = {
   read<T>(connectorId: string, fallback: T): T;
   write(connectorId: string, value: unknown): void;
   delete(connectorId: string): void;
+  /**
+   * Host-resolved env-override precedence values for THIS package's manifest
+   * `cinatra.envOverrides` (cinatra-ai/cinatra#982, Option A): a map from the
+   * settings/secrets KEY the connector stores a value under (`secretKey`,
+   * `serverUrl`, `connectUrl`) to the CURRENT, trimmed `process.env` value —
+   * present only for env vars that are set to a non-blank value. The env-var
+   * NAMES live in the manifest, never in this package's source; the HOST reads
+   * `process.env` and applies the mapping (`register-host-connector-services`).
+   *
+   * ACTOR-FREE: resolves from the process environment + the static manifest, so
+   * the inbound-webhook signature-verify read (no org/actor in context) still
+   * gets env-first precedence WITHOUT routing through the org-scoped
+   * settings/secrets ports (which fail closed with no actor).
+   *
+   * Optional so an OLDER host build (whose `connector-config` capability
+   * predates this member) degrades to DB-only resolution rather than throwing;
+   * the bound store's caller treats a missing member as "no overrides".
+   */
+  resolveEnvOverrides?(): Record<string, string>;
 };
 
 let boundStore: NangoConfigStore | null = null;

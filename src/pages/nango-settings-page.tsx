@@ -1,5 +1,6 @@
 import { saveNangoConnectionAction } from "../actions";
-import { getNangoSettings } from "../nango";
+import { getNangoSettings, getNangoSettingsEnvManaged } from "../nango";
+import { isNangoDevelopmentRuntime } from "../runtime-store";
 import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
 import { Button } from "../components/ui/button";
 import { Card, CardContent } from "../components/ui/card";
@@ -33,13 +34,16 @@ function normalizeDashboardUrl(value?: string) {
 }
 
 function getDefaultServerUrl(settingsServerUrl?: string) {
+  // `settingsServerUrl` already reflects the operator's `NANGO_SERVER_URL`
+  // override when set: `getNangoSettings()` resolves it HOST-SIDE from this
+  // package's manifest `cinatra.envOverrides` (env-first-else-DB), so the page
+  // no longer reads `process.env.NANGO_SERVER_URL` directly (cinatra-ai/cinatra#982).
   if (settingsServerUrl?.trim()) {
     return settingsServerUrl;
   }
-  if (process.env.NANGO_SERVER_URL?.trim()) {
-    return process.env.NANGO_SERVER_URL;
-  }
-  if (process.env.CINATRA_RUNTIME_MODE === "development" || process.env.NODE_ENV !== "production") {
+  // Dev-vs-prod default comes from the host runtime port (ctx.runtime.mode),
+  // captured at activation — never `process.env.CINATRA_RUNTIME_MODE` / `NODE_ENV`.
+  if (isNangoDevelopmentRuntime()) {
     return "http://localhost:3003";
   }
   return "";
@@ -95,6 +99,10 @@ export async function NangoSettingsSection({ searchParams, redirectTo = "/config
   const resolvedSearchParams: Record<string, string | string[] | undefined> =
     await (searchParams ?? Promise.resolve({} as Record<string, string | string[] | undefined>));
   const settings = getNangoSettings();
+  // Which fields are supplied by an operator env override (host-resolved from
+  // the manifest, cinatra-ai/cinatra#982) — used to blank the write-only field
+  // and skip `required`, replacing the former `process.env.NANGO_*` checks.
+  const envManaged = getNangoSettingsEnvManaged();
   const dashboardUrl = normalizeDashboardUrl(settings.serverUrl);
   const errorMessage = pickSearchParam(resolvedSearchParams.error);
   const saved = pickSearchParam(resolvedSearchParams.saved) === "1";
@@ -137,10 +145,10 @@ export async function NangoSettingsSection({ searchParams, redirectTo = "/config
               <Input
                 name="secretKey"
                 type="password"
-                defaultValue={process.env.NANGO_SECRET_KEY ? "" : (settings.secretKey ?? "")}
-                required={!process.env.NANGO_SECRET_KEY && !settings.secretKey}
+                defaultValue={envManaged.secretKey ? "" : (settings.secretKey ?? "")}
+                required={!envManaged.secretKey && !settings.secretKey}
               />
-              {process.env.NANGO_SECRET_KEY || settings.secretKey ? (
+              {envManaged.secretKey || settings.secretKey ? (
                 <span className="text-xs font-normal text-muted-foreground">Leave blank to keep the current saved key.</span>
               ) : null}
             </Label>
@@ -153,7 +161,7 @@ export async function NangoSettingsSection({ searchParams, redirectTo = "/config
                 <InputGroupInput
                   name="serverUrl"
                   type="url"
-                  defaultValue={process.env.NANGO_SERVER_URL ? "" : serverUrlDefault}
+                  defaultValue={envManaged.serverUrl ? "" : serverUrlDefault}
                   placeholder="http://localhost:3003"
                 />
               </InputGroup>

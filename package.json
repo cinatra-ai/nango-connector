@@ -60,6 +60,11 @@
       "capabilities"
     ],
     "sdkAbiRange": "^2",
-    "consumes": []
+    "consumes": [],
+    "envOverrides": {
+      "NANGO_SECRET_KEY": "secrets:secretKey",
+      "NANGO_SERVER_URL": "settings:serverUrl",
+      "NANGO_PUBLIC_CONNECT_URL": "settings:connectUrl"
+    }
   }
 }
