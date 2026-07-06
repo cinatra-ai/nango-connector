@@ -224,15 +224,38 @@ export function buildNangoUserEndUserId(userId: string) {
 export function getNangoSettings(): NangoSettings {
   const stored = readStoredNangoSettings();
 
-  // Use `?.trim() ||` rather than `??` so a `.env` line like
-  // `NANGO_SECRET_KEY=` (key set, value empty) falls back to the
-  // DB-stored value instead of being treated as an explicit empty override.
-  // With `??`, the empty string is "set" and shadows `stored.*`, leaving
-  // getNangoStatus() at "not_connected" even when the operator wrote a
-  // secret via the setup wizard.
+  // Env-override precedence is applied HOST-SIDE (cinatra-ai/cinatra#982,
+  // Option A). The host reads the operator env vars declared in THIS package's
+  // manifest `cinatra.envOverrides` and returns their CURRENT, trimmed values
+  // keyed by settings/secrets KEY (`secretKey` / `serverUrl`). A blank
+  // `NANGO_SECRET_KEY=` env line is treated as unset host-side and is absent
+  // from the map, so it falls back to the DB-stored value — the exact
+  // `?.trim() ||` precedence the evicted `process.env` reads carried (with
+  // `??`, an empty string would "set" and shadow `stored.*`).
+  //
+  // This is an ACTOR-FREE read: the host resolves from `process.env` + the
+  // static manifest, with no org/actor and no org-scoped settings/secrets port,
+  // so the inbound-webhook signature-verify path (no actor in context) keeps
+  // resolving the secret with env-first precedence.
+  const env = getNangoConfigStore().resolveEnvOverrides?.() ?? {};
   return {
-    secretKey: process.env.NANGO_SECRET_KEY?.trim() || stored.secretKey,
-    serverUrl: process.env.NANGO_SERVER_URL?.trim() || stored.serverUrl,
+    secretKey: env.secretKey || stored.secretKey,
+    serverUrl: env.serverUrl || stored.serverUrl,
+  };
+}
+
+/**
+ * Which nango settings/secrets keys are currently supplied by an operator env
+ * override (host-resolved from this package's manifest `cinatra.envOverrides`,
+ * cinatra-ai/cinatra#982). The settings page uses this — never `process.env` —
+ * to blank the write-only field and skip `required` when the value is
+ * env-managed (the operator cannot override an env-provided value from the UI).
+ */
+export function getNangoSettingsEnvManaged(): { secretKey: boolean; serverUrl: boolean } {
+  const env = getNangoConfigStore().resolveEnvOverrides?.() ?? {};
+  return {
+    secretKey: typeof env.secretKey === "string" && env.secretKey.length > 0,
+    serverUrl: typeof env.serverUrl === "string" && env.serverUrl.length > 0,
   };
 }
 
@@ -363,7 +386,13 @@ export function getNangoStatus() {
 export function getNangoFrontendConfig(): NangoFrontendConfig {
   const settings = getNangoSettings();
   const serverUrl = settings.serverUrl?.trim();
-  const connectUrl = process.env.NANGO_PUBLIC_CONNECT_URL?.trim();
+  // `NANGO_PUBLIC_CONNECT_URL` is declared in this package's manifest
+  // `cinatra.envOverrides` (`settings:connectUrl`) and resolved HOST-SIDE. It
+  // has no DB backing (nothing ever writes a `connectUrl` config row), so this
+  // is env-only — byte-equivalent to the evicted
+  // `process.env.NANGO_PUBLIC_CONNECT_URL?.trim()` read (the host returns the
+  // trimmed value, or nothing when the env var is unset/blank).
+  const connectUrl = getNangoConfigStore().resolveEnvOverrides?.().connectUrl;
 
   if (!serverUrl && !connectUrl) {
     return {};
