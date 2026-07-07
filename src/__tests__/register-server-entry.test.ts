@@ -107,6 +107,7 @@ describe("register(ctx) — probe safety + surface registration", () => {
       "getNangoStatus",
       "getNangoFrontendConfig",
       "getNangoSettings",
+      "getNangoSettingsEnvManaged",
       "getNangoOAuthCallbackUrl",
       "listSavedNangoConnections",
       "getPrimarySavedNangoConnection",

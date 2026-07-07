@@ -1,12 +1,13 @@
 {
   "name": "@cinatra-ai/nango-connector",
-  "version": "0.1.3",
+  "version": "0.1.7",
   "license": "Apache-2.0",
   "type": "module",
   "files": [
     "src",
     "!src/__tests__"
-  ],
+  ,
+    "cinatra"],
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -48,10 +49,22 @@
   "cinatra": {
     "apiVersion": "cinatra.ai/v1",
     "kind": "connector",
+    "displayName": "Nango",
+    "vendor": {
+      "key": "cinatra-ai",
+      "name": "Cinatra"
+    },
     "dependencies": [],
     "serverEntry": "./register",
     "requestedHostPorts": [
       "capabilities"
-    ]
+    ],
+    "sdkAbiRange": "^2",
+    "consumes": [],
+    "envOverrides": {
+      "NANGO_SECRET_KEY": "secrets:secretKey",
+      "NANGO_SERVER_URL": "settings:serverUrl",
+      "NANGO_PUBLIC_CONNECT_URL": "settings:connectUrl"
+    }
   }
 }
