@@ -15,20 +15,31 @@ vi.mock("@nangohq/node", () => ({
     deleteConnection = deleteConnectionMock;
   },
 }));
-// Keep getNangoSettings() off the DB-backed store — env NANGO_SECRET_KEY drives
-// isNangoConfigured()/getNangoClient().
-vi.mock("../config-store", () => ({
-  getNangoConfigStore: () => ({ read: () => ({}), write: () => undefined }),
-}));
 
+import { _resetNangoConfigStoreForTests, setNangoConfigStore } from "../config-store";
 import { deleteNangoConnectionStrict } from "../nango";
+
+// Config resolves through the injected store (bound by register(ctx) in the
+// real runtime; an in-memory double here — no DB). The secret arrives via the
+// HOST-resolved env-override map (`resolveEnvOverrides`, cinatra-ai/cinatra#982
+// Option A) — the surface that replaced this package's direct
+// `process.env.NANGO_SECRET_KEY` read — and drives isNangoConfigured() /
+// getNangoClient(). Mutated per test to model the unconfigured state.
+let envOverrides: Record<string, string>;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.NANGO_SECRET_KEY = "test-secret";
+  envOverrides = { secretKey: "test-secret" };
+  _resetNangoConfigStoreForTests();
+  setNangoConfigStore({
+    read: (_id, fallback) => fallback,
+    write: () => undefined,
+    delete: () => undefined,
+    resolveEnvOverrides: () => envOverrides,
+  });
 });
 afterEach(() => {
-  delete process.env.NANGO_SECRET_KEY;
+  _resetNangoConfigStoreForTests();
 });
 
 describe("deleteNangoConnectionStrict", () => {
@@ -41,6 +52,7 @@ describe("deleteNangoConnectionStrict", () => {
   it("tolerates a 404 (connection already gone) as idempotent success", async () => {
     deleteConnectionMock.mockRejectedValueOnce({ response: { status: 404 } });
     await expect(deleteNangoConnectionStrict("pck", "c1")).resolves.toBeUndefined();
+    expect(deleteConnectionMock).toHaveBeenCalledWith("pck", "c1");
   });
 
   it("PROPAGATES a non-404 failure (e.g. 503) so the caller can retain its pointer", async () => {
@@ -48,15 +60,19 @@ describe("deleteNangoConnectionStrict", () => {
       response: { status: 503, data: { error: { message: "service unavailable" } } },
     });
     await expect(deleteNangoConnectionStrict("pck", "c1")).rejects.toThrow();
+    // The rejection must come from the DELETE call, not an unconfigured
+    // short-circuit (which would make this assertion pass vacuously).
+    expect(deleteConnectionMock).toHaveBeenCalledWith("pck", "c1");
   });
 
   it("PROPAGATES a transport error with no HTTP status", async () => {
     deleteConnectionMock.mockRejectedValueOnce(new Error("ECONNREFUSED"));
     await expect(deleteNangoConnectionStrict("pck", "c1")).rejects.toThrow();
+    expect(deleteConnectionMock).toHaveBeenCalledWith("pck", "c1");
   });
 
   it("FAILS CLOSED when Nango isn't configured (cannot confirm the scrub) — never calls the client", async () => {
-    delete process.env.NANGO_SECRET_KEY;
+    envOverrides = {};
     await expect(deleteNangoConnectionStrict("pck", "c1")).rejects.toThrow();
     expect(deleteConnectionMock).not.toHaveBeenCalled();
   });
