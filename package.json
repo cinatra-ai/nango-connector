@@ -19,7 +19,7 @@
     "lint": "eslint . --no-inline-config"
   },
   "dependencies": {
-    "@nangohq/frontend": "^0.70.3",
+    "@nangohq/frontend": "^0.71.0",
     "@nangohq/node": "^0.70.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
