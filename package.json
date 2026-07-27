@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@nangohq/frontend": "^0.71.0",
-    "@nangohq/node": "^0.70.3",
+    "@nangohq/node": "^0.71.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "radix-ui": "^1.4.3",
