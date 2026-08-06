@@ -50,6 +50,7 @@
     "apiVersion": "cinatra.ai/v1",
     "kind": "connector",
     "displayName": "Nango",
+    "logo": "./cinatra/logo.svg",
     "vendor": {
       "key": "cinatra-ai",
       "name": "Cinatra"
