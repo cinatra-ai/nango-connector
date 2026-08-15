@@ -3,6 +3,7 @@ import {
   CINATRA_NANGO_PROVIDER_CONFIG_KEYS,
   buildNangoUserEndUserId,
   ensureNangoIntegration,
+  fetchGoogleUserinfoProfile,
   getNangoClient,
   getNangoConnection,
   getNangoGoogleOAuthClientCredentials,
@@ -14,6 +15,11 @@ import {
 } from "./nango";
 import { getNangoConfigStore } from "./config-store";
 import { materializeNangoConnection } from "./connection-materializer";
+import {
+  isGoogleAccountIdentityConnector,
+  resolveGoogleAccountIdentity,
+  type GoogleAccountIdentity,
+} from "./google-account-identity";
 
 const GOOGLE_NANGO_SCOPES = [
   "https://www.googleapis.com/auth/gmail.send",
@@ -41,7 +47,16 @@ const LINKEDIN_NANGO_SCOPES = ["openid", "profile", "email", "w_member_social"].
 // credentials chain moved connector-side with the serverEntry cutover).
 const GITHUB_NANGO_SCOPES = ["repo", "workflow", "read:user", "user:email"].join(",");
 const GOOGLE_NANGO_DISPLAY_NAME = "Google";
-const YOUTUBE_NANGO_SCOPES = ["https://www.googleapis.com/auth/youtube.readonly"].join(",");
+// `userinfo.email` (cinatra-ai/cinatra#2766): without it YouTube cannot name the
+// authorized Google account at all, so its card could only ever show the app
+// login (the defect) or nothing. Gmail / Calendar / the shared Google OAuth
+// integration already requested it. Connections made before this scope was
+// added keep their old grant — their card degrades to a bare "Connected" until
+// the operator reconnects, which is the correct honest state.
+const YOUTUBE_NANGO_SCOPES = [
+  "https://www.googleapis.com/auth/youtube.readonly",
+  "https://www.googleapis.com/auth/userinfo.email",
+].join(",");
 
 /**
  * LinkedIn OAuth client credentials, resolved with the SAME precedence as the
@@ -411,13 +426,43 @@ export async function saveNangoConnectorConnection(input: {
     throw new Error("Unable to load the Nango connection details.");
   }
 
+  // ACCOUNT IDENTITY (cinatra-ai/cinatra#2766).
+  //
+  // The Nango `end_user` is tagged with the CINATRA SESSION USER at connect
+  // time, so `end_user.email` is the APP LOGIN — never the third-party account
+  // that was actually authorized. For a Google connector that value is
+  // affirmatively wrong the moment the operator picks a different Google
+  // account in the consent screen, so the label is resolved from the Google
+  // `userinfo` profile instead (read through the Nango proxy — the token never
+  // leaves Nango).
+  //
+  // On failure the identity is EMPTY, so the record's email/displayName are
+  // cleared and the card renders a bare "Connected". Falling back to
+  // `end_user.email` here is exactly the misleading state #2766 reports and is
+  // therefore forbidden — no email beats the wrong email. Clearing (rather than
+  // leaving the stored value alone) also scrubs the app-login email that older
+  // saves wrote, so a re-save always converges on an honest label.
+  //
+  // Non-Google connectors keep the end_user identity: for them the connection
+  // IS the app-level credential and no separate account identity exists.
+  const isGoogleAccount = isGoogleAccountIdentityConnector(input.connectorKey);
+  const accountIdentity: GoogleAccountIdentity = isGoogleAccount
+    ? await resolveGoogleAccountIdentity({
+        connection,
+        fetchUserinfo: () =>
+          fetchGoogleUserinfoProfile(input.providerConfigKey, input.connectionId),
+      })
+    : {};
+
   await saveNangoConnectionRecord(
     input.connectorKey,
     {
       connectionId: input.connectionId,
       providerConfigKey: input.providerConfigKey,
-      displayName: connection.end_user?.display_name ?? undefined,
-      email: connection.end_user?.email ?? undefined,
+      displayName: isGoogleAccount
+        ? accountIdentity.displayName
+        : (connection.end_user?.display_name ?? undefined),
+      email: isGoogleAccount ? accountIdentity.email : (connection.end_user?.email ?? undefined),
       authMode: connection.credentials?.type,
       scope: input.scope ?? "app",
       userId: input.scope === "user" ? input.userId : undefined,
