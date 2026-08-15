@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { Nango, type ApiKeyCredentials, type BasicApiCredentials, type OAuth2Credentials } from "@nangohq/node";
 import { getNangoConfigStore } from "./config-store";
+import { GOOGLE_USERINFO_BASE_URL, GOOGLE_USERINFO_ENDPOINT } from "./google-account-identity";
 
 export type NangoSettings = {
   secretKey?: string;
@@ -813,6 +814,15 @@ export async function importNangoConnection(input: {
     const { NANGO_CONNECTOR_DEFINITIONS } = await import("./nango-connectors");
     const multiple =
       NANGO_CONNECTOR_DEFINITIONS[input.connectorKey]?.multiple ?? false;
+    // The end_user identity is the CORRECT label here (contrast the OAuth
+    // Connect-UI path, cinatra-ai/cinatra#2766): `importNangoConnection` serves
+    // the server-side API-key / bearer-token connectors (Gemini, Apify, Drupal,
+    // A2A servers, registry credentials). Those credentials are app-level — no
+    // separate authorized third-party ACCOUNT exists to name — so there is no
+    // Google-style divergence between the app login and the connected account.
+    // No Google connector reaches this path; they all go through
+    // `saveNangoConnectorConnection`, which resolves the Google userinfo
+    // identity instead.
     await saveNangoConnectionRecord(
       input.connectorKey,
       {
@@ -873,6 +883,40 @@ export async function getNangoCredentials(
   } catch {
     return null;
   }
+}
+
+/**
+ * Read the Google `userinfo` profile for a connection THROUGH THE NANGO PROXY
+ * (cinatra-ai/cinatra#2766).
+ *
+ * The proxy attaches the connection's access token server-side inside Nango, so
+ * the token never transits Cinatra — this call carries only the connection
+ * pointer. `baseUrlOverride` targets googleapis.com because the Google provider
+ * templates proxy to their own API hosts (gmail / calendar / youtube), not to
+ * the shared userinfo endpoint.
+ *
+ * THROWS on failure (not-configured, proxy error, Google 403). The caller
+ * (`resolveGoogleAccountIdentity`) turns a throw into "no email" — deliberately
+ * never into the app-login email.
+ */
+export async function fetchGoogleUserinfoProfile(
+  providerConfigKey: string,
+  connectionId: string,
+): Promise<unknown> {
+  if (!isNangoConfigured()) {
+    throw new Error("The connection service (Nango) is not configured.");
+  }
+
+  const nango = getNangoClient();
+  const response = await nango.get({
+    baseUrlOverride: GOOGLE_USERINFO_BASE_URL,
+    endpoint: GOOGLE_USERINFO_ENDPOINT,
+    providerConfigKey,
+    connectionId,
+    retries: 1,
+  });
+
+  return response.data;
 }
 
 /**
