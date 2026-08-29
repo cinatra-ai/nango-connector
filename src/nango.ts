@@ -423,7 +423,19 @@ export function getNangoOAuthCallbackUrl() {
   const baseUrl = settings.serverUrl?.trim() || "https://api.nango.dev";
 
   try {
-    return new URL("/oauth/callback", baseUrl).toString();
+    // Nango builds the redirect it hands the provider by CONCATENATION
+    // (`serverUrl + "/oauth/callback"`), so a server published under a path
+    // prefix receives `https://example.test/nango/oauth/callback`. Resolving an
+    // ABSOLUTE path (`new URL("/oauth/callback", baseUrl)`) against the base URL
+    // discards that prefix and shows an origin-only address the provider never
+    // receives. Keep the base path and append; a base URL that does not parse
+    // still falls back to the hosted callback.
+    const parsedBaseUrl = new URL(baseUrl);
+    if (parsedBaseUrl.protocol !== "https:" && parsedBaseUrl.protocol !== "http:") {
+      throw new Error("The Nango server URL must be an http(s) address.");
+    }
+    const base = `${parsedBaseUrl.origin}${parsedBaseUrl.pathname}`.replace(/\/+$/, "");
+    return `${base}/oauth/callback`;
   } catch {
     return "https://api.nango.dev/oauth/callback";
   }
