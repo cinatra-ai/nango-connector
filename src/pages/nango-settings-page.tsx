@@ -1,15 +1,15 @@
 import { saveNangoConnectionAction } from "../actions";
 import { getNangoSettings, getNangoSettingsEnvManaged } from "../nango";
 import { isNangoDevelopmentRuntime } from "../runtime-store";
-import { Alert, AlertDescription, AlertTitle } from "../components/ui/alert";
-import { Button } from "../components/ui/button";
-import { Card, CardContent } from "../components/ui/card";
+import { Alert, AlertDescription, AlertTitle } from "@cinatra-ai/design-primitives";
+import { Button } from "@cinatra-ai/design-primitives";
+import { Card, CardContent } from "@cinatra-ai/design-primitives";
 import { LinkIcon } from "lucide-react";
-import { Input } from "../components/ui/input";
-import { InputGroup, InputGroupAddon, InputGroupInput } from "../components/ui/input-group";
-import { Field, FieldDescription, FieldLabel } from "../components/ui/field";
-import { Label } from "../components/ui/label";
-import { Link } from "../components/ui/link";
+import { Input } from "@cinatra-ai/design-primitives";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@cinatra-ai/design-primitives";
+import { Field, FieldDescription, FieldLabel } from "@cinatra-ai/design-primitives";
+import { Label } from "@cinatra-ai/design-primitives";
+import { Link } from "../ui/link";
 
 type SettingsNangoPageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -132,7 +132,7 @@ export async function NangoSettingsSection({ searchParams, redirectTo = "/config
         </div>
       ) : null}
 
-      <Card className="border-line bg-surface backdrop-blur-none rounded-card">
+      <Card>
         <CardContent className="p-6">
           <form action={saveNangoConnectionAction} className="grid gap-4">
             <Input type="hidden" name="redirectTo" value={redirectTo} />
