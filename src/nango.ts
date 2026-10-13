@@ -628,6 +628,10 @@ export function getNangoClient() {
   // Node's legacy `url.parse()` path from surfacing as a dev-time deprecation warning.
   nango.http.defaults.proxy = false;
 
+  // Requests go only to the configured service address: a redirect answer
+  // fails the call instead of being followed.
+  nango.http.defaults.maxRedirects = 0;
+
   return nango;
 }
 
