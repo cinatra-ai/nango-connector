@@ -43,6 +43,18 @@ const GOOGLE_CALENDAR_NANGO_SCOPES = [
 ].join(",");
 
 const LINKEDIN_NANGO_SCOPES = ["openid", "profile", "email", "w_member_social"].join(",");
+// A LinkedIn app with the Community Management API carries no other product
+// (LinkedIn requires it to be the app's only product), so it grants no OpenID
+// scope: an authorize request naming openid/profile/email fails with "Invalid
+// scope". The admin form marks such an app with `organizationPosting: true` on
+// the "linkedin" row; Connect then asks for exactly these five scopes.
+const LINKEDIN_ORGANIZATION_NANGO_SCOPES = [
+  "r_basicprofile",
+  "w_member_social",
+  "rw_organization_admin",
+  "w_organization_social",
+  "r_organization_social",
+].join(",");
 // Parity with the host github surface's OAuth scope set (the integration
 // credentials chain moved connector-side with the serverEntry cutover).
 const GITHUB_NANGO_SCOPES = ["repo", "workflow", "read:user", "user:email"].join(",");
@@ -64,18 +76,28 @@ const YOUTUBE_NANGO_SCOPES = [
  * are the source of truth, with the DB `"linkedin"` connector-config row (via
  * the injected store) as the resilience fallback. Parity is test-pinned —
  * keep this chain in sync with the host's `getLinkedInAPISettings`.
+ *
+ * With `organizationPosting: true` on the row (a Community Management app),
+ * only the row's pair counts: such an app is always a different LinkedIn app
+ * from an OpenID one, and the admin form saves its pair together with the
+ * flag. A complete row pair wins over the integration's pair; an incomplete
+ * row pair gives no pair, so Connect stops before the PATCH instead of sending
+ * the Community Management scopes with an older OpenID client.
  */
 async function getLinkedInClientCredentials(): Promise<{
   clientId?: string;
   clientSecret?: string;
+  organizationPosting: boolean;
 }> {
   const nangoCredentials = await getNangoOAuth2IntegrationCredentials(
     CINATRA_NANGO_PROVIDER_CONFIG_KEYS.linkedin,
   );
-  const stored = getNangoConfigStore().read<{ clientId?: unknown; clientSecret?: unknown }>(
-    "linkedin",
-    {},
-  );
+  const stored = getNangoConfigStore().read<{
+    clientId?: unknown;
+    clientSecret?: unknown;
+    organizationPosting?: unknown;
+  }>("linkedin", {});
+  const organizationPosting = stored.organizationPosting === true;
   const storedClientId =
     typeof stored.clientId === "string" && stored.clientId.trim() ? stored.clientId.trim() : undefined;
   const storedClientSecret =
@@ -83,9 +105,19 @@ async function getLinkedInClientCredentials(): Promise<{
       ? stored.clientSecret.trim()
       : undefined;
 
+  if (organizationPosting) {
+    const rowPairComplete = Boolean(storedClientId && storedClientSecret);
+    return {
+      clientId: rowPairComplete ? storedClientId : undefined,
+      clientSecret: rowPairComplete ? storedClientSecret : undefined,
+      organizationPosting,
+    };
+  }
+
   return {
     clientId: nangoCredentials?.clientId || storedClientId,
     clientSecret: nangoCredentials?.clientSecret || storedClientSecret,
+    organizationPosting,
   };
 }
 
@@ -217,7 +249,7 @@ export async function ensureNangoConnectorIntegration(connectorKey: NangoConnect
           type: "OAUTH2",
           client_id: settings.clientId,
           client_secret: settings.clientSecret,
-          scopes: LINKEDIN_NANGO_SCOPES,
+          scopes: settings.organizationPosting ? LINKEDIN_ORGANIZATION_NANGO_SCOPES : LINKEDIN_NANGO_SCOPES,
         },
       });
     }
